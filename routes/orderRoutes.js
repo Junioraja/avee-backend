@@ -4,10 +4,10 @@ const router = express.Router();
 const db = require('../db');
 const { protect, admin } = require('../middleware/authMiddleware'); // Middleware Admin
 
-// Endpoint 1: POST /api/orders (Membuat Pesanan Baru - Dipanggil dari order.html)
+// Endpoint 1: POST /api/orders (Membuat Pesanan Baru - Mencatat Transaksi)
 router.post('/', async (req, res) => {
     // Data yang dikirim dari frontend (order.html)
-    // Asumsi items adalah array: [{ productId, quantity, unitPrice }]
+    // items harus mengirimkan: [{ productCode, quantity, unitPrice }]
     const { userId, totalAmount, items } = req.body; 
 
     // Validasi dasar
@@ -15,33 +15,37 @@ router.post('/', async (req, res) => {
         return res.status(400).json({ error: 'Data pesanan tidak lengkap.' });
     }
 
-    // Gunakan transaksi untuk memastikan semua insert berhasil atau tidak sama sekali
+    // Gunakan transaksi untuk memastikan semua insert/update berhasil atau gagal
     const client = await db.pool.connect();
     
     try {
         await client.query('BEGIN'); // Mulai Transaksi
 
-        // 1. Masukkan data ke tabel orders (Header Pesanan)
+        // 1. Masukkan data ke tabel public.orders (Header Pesanan)
         const orderResult = await client.query(
-            'INSERT INTO orders (user_id, total_amount) VALUES ($1, $2) RETURNING id, order_date',
+            'INSERT INTO public.orders (user_id, total_amount) VALUES ($1, $2) RETURNING id, order_date',
             [userId || null, totalAmount] // Gunakan null jika userId tidak ada (Guest)
         );
         const orderId = orderResult.rows[0].id;
         const orderDate = orderResult.rows[0].order_date;
 
-        // 2. Masukkan item detail ke tabel order_details
+        // 2. Masukkan item detail ke public.order_details dan update stok
         for (const item of items) {
-            // item: { productId, quantity, unitPrice }
-            // Catatan: product_id harus ID NUMERIK dari tabel products
+            // item: { productCode, quantity, unitPrice }
+            const productCode = item.productCode; // Ambil productCode dari body frontend
+            
+            // a) Masukkan detail pesanan (Relasi menggunakan product_code)
+            // KOREKSI UTAMA 1: Menggunakan public.order_details dan kolom product_code (string)
             await client.query(
-                'INSERT INTO order_details (order_id, product_id, quantity, unit_price) VALUES ($1, $2, $3, $4)',
-                [orderId, item.productId, item.quantity, item.unitPrice]
+                'INSERT INTO public.order_details (order_id, product_code, quantity, unit_price) VALUES ($1, $2, $3, $4)',
+                [orderId, productCode, item.quantity, item.unitPrice]
             );
             
-            // 3. Update Stok Produk (Opsional, tapi disarankan)
+            // b) Update Stok Produk (Relasi menggunakan product_code)
+            // KOREKSI UTAMA 2: Menggunakan public.products dan product_code
             await client.query(
-                'UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1', 
-                [item.quantity, item.productId]
+                'UPDATE public.products SET stock = stock - $1 WHERE product_code = $2 AND stock >= $1', 
+                [item.quantity, productCode]
             );
         }
         
@@ -54,9 +58,10 @@ router.post('/', async (req, res) => {
         });
 
     } catch (err) {
-        await client.query('ROLLBACK'); // Rollback (Batalkan semua perubahan jika ada error)
+        await client.query('ROLLBACK'); // Rollback jika gagal
         console.error('Error saat membuat pesanan:', err.stack);
-        res.status(500).json({ error: 'Gagal mencatat pesanan. Rollback dilakukan.' });
+        // Kirim error spesifik ke frontend (debug)
+        res.status(500).json({ error: 'Gagal menyimpan order ke DB. Rollback dilakukan. (Cek log server)' });
     } finally {
         client.release();
     }
@@ -70,8 +75,8 @@ router.get('/', protect, admin, async (req, res) => {
             SELECT 
                 o.id, o.order_date, o.total_amount, o.status, 
                 u.name as user_name, u.email as user_email
-            FROM orders o
-            LEFT JOIN users u ON o.user_id = u.id
+            FROM public.orders o
+            LEFT JOIN public.users u ON o.user_id = u.id
             ORDER BY o.order_date DESC
         `);
         res.status(200).json(result.rows);
@@ -84,11 +89,11 @@ router.get('/', protect, admin, async (req, res) => {
 // Endpoint 3: PUT /api/orders/:id/status (Update Status Pesanan - HANYA ADMIN)
 router.put('/:id/status', protect, admin, async (req, res) => {
     const { id } = req.params;
-    const { status } = req.body; // Status baru (Pending, Proses, Selesai, Paid, etc.)
+    const { status } = req.body; 
 
     try {
         const result = await db.query(
-            'UPDATE orders SET status = $1 WHERE id = $2 RETURNING id, status',
+            'UPDATE public.orders SET status = $1 WHERE id = $2 RETURNING id, status',
             [status, id]
         );
         
@@ -115,8 +120,8 @@ router.get('/:id', protect, admin, async (req, res) => {
             SELECT 
                 o.id, o.order_date, o.total_amount, o.status, 
                 u.name as user_name, u.email as user_email
-            FROM orders o
-            LEFT JOIN users u ON o.user_id = u.id
+            FROM public.orders o
+            LEFT JOIN public.users u ON o.user_id = u.id
             WHERE o.id = $1
         `, [id]);
         
@@ -126,12 +131,12 @@ router.get('/:id', protect, admin, async (req, res) => {
         
         const order = orderHeaderResult.rows[0];
 
-        // 2. Ambil Detail Item Pesanan (termasuk kode produk untuk pesan WA)
+        // 2. Ambil Detail Item Pesanan (menggunakan JOIN pada product_code)
         const orderDetailsResult = await db.query(`
             SELECT 
-                od.quantity, od.unit_price, p.product_code, p.app_name, p.package_name, p.duration, p.product_code
-            FROM order_details od
-            JOIN products p ON od.product_id = p.id
+                od.quantity, od.unit_price, p.product_code, p.app_name, p.package_name, p.duration
+            FROM public.order_details od
+            JOIN public.products p ON od.product_code = p.product_code
             WHERE od.order_id = $1
         `, [id]);
 
