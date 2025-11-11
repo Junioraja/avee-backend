@@ -1,38 +1,32 @@
 // db.js
 const { Pool } = require('pg');
 
-// Ambil URL koneksi lengkap yang disediakan oleh Railway (atau Cloud Provider lain)
 const connectionString = process.env.DATABASE_URL;
-
-// --- KONFIGURASI KONEKSI ---
 let dbConfig;
 
 if (connectionString) {
-    // 1. Lingkungan Cloud (Railway/Production)
-    // Menggunakan URL lengkap dan menambahkan konfigurasi SSL yang diperlukan.
-    // Ini adalah prioritas utama.
+    // LINGKUNGAN RAILWAY (PRIORITAS UTAMA)
     dbConfig = {
         connectionString: connectionString,
-        // Konfigurasi SSL/TLS wajib untuk koneksi Cloud:
+        // Ini adalah KUNCI untuk mengatasi masalah koneksi di PaaS (SSL)
         ssl: {
-            rejectUnauthorized: false // Mengabaikan verifikasi sertifikat (seringkali diperlukan untuk internal PaaS)
+            rejectUnauthorized: false 
         }
     };
 } else {
-    // 2. Fallback untuk Development Lokal (Jika DATABASE_URL tidak ada)
-    // Menggunakan variabel terpisah dari file .env lokal
-    console.warn("DATABASE_URL is not set. Using fallback variables from .env.");
+    // FALLBACK LOKAL
     dbConfig = {
         user: process.env.DB_USER,
         host: process.env.DB_HOST,
         database: process.env.DB_DATABASE,
         password: process.env.DB_PASSWORD,
         port: process.env.DB_PORT,
+        // Tambahkan ini juga di lokal, karena kadang diperlukan
+        // ssl: { rejectUnauthorized: false } 
     };
 }
 
 const pool = new Pool(dbConfig);
-
 
 // Test koneksi saat modul dimuat
 pool.query('SELECT NOW()', (err, res) => {
@@ -49,3 +43,4 @@ module.exports = {
     query: (text, params) => pool.query(text, params),
     pool: pool,
 };
+
