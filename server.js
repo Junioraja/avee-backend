@@ -10,7 +10,7 @@ const session = require('express-session'); // Diperlukan untuk sesi Passport
 
 const allowedOrigins = [
     'https://avee-backend-production-69b5.up.railway.app', // Domain Railway sendiri
-    'https://[DOMAIN-ANDA].vercel.app', // Ganti dengan domain Vercel Anda
+    'https://aveepremiumstore.vercel.app', // Ganti dengan domain Vercel Anda
     'http://localhost:8080', // Untuk development lokal frontend
 ];
 
@@ -64,3 +64,4 @@ app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 
 });
+
