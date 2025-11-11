@@ -6,50 +6,43 @@ const { protect, admin } = require('../middleware/authMiddleware'); // Middlewar
 
 // Endpoint 1: POST /api/orders (Membuat Pesanan Baru - Mencatat Transaksi)
 router.post('/', async (req, res) => {
-    // Data yang dikirim dari frontend (order.html)
-    // items harus mengirimkan: [{ productCode, quantity, unitPrice }]
     const { userId, totalAmount, items } = req.body; 
 
-    // Validasi dasar
     if (!items || items.length === 0 || !totalAmount) {
         return res.status(400).json({ error: 'Data pesanan tidak lengkap.' });
     }
 
-    // Gunakan transaksi untuk memastikan semua insert/update berhasil atau gagal
     const client = await db.pool.connect();
     
     try {
         await client.query('BEGIN'); // Mulai Transaksi
 
-        // 1. Masukkan data ke tabel public.orders (Header Pesanan)
+        // 1. Masukkan data ke public.orders (Pastikan public. ada)
         const orderResult = await client.query(
             'INSERT INTO public.orders (user_id, total_amount) VALUES ($1, $2) RETURNING id, order_date',
-            [userId || null, totalAmount] // Gunakan null jika userId tidak ada (Guest)
+            [userId || null, totalAmount]
         );
         const orderId = orderResult.rows[0].id;
         const orderDate = orderResult.rows[0].order_date;
 
         // 2. Masukkan item detail ke public.order_details dan update stok
         for (const item of items) {
-            // item: { productCode, quantity, unitPrice }
-            const productCode = item.productCode; // Ambil productCode dari body frontend
+            const productCode = item.productCode; // String unik dari frontend
             
             // a) Masukkan detail pesanan (Relasi menggunakan product_code)
-            // KOREKSI UTAMA 1: Menggunakan public.order_details dan kolom product_code (string)
             await client.query(
                 'INSERT INTO public.order_details (order_id, product_code, quantity, unit_price) VALUES ($1, $2, $3, $4)',
                 [orderId, productCode, item.quantity, item.unitPrice]
             );
             
-            // b) Update Stok Produk (Relasi menggunakan product_code)
-            // KOREKSI UTAMA 2: Menggunakan public.products dan product_code
+            // b) Update Stok Produk (Menggunakan product_code)
             await client.query(
                 'UPDATE public.products SET stock = stock - $1 WHERE product_code = $2 AND stock >= $1', 
                 [item.quantity, productCode]
             );
         }
         
-        await client.query('COMMIT'); // Commit Transaksi (Simpan ke DB)
+        await client.query('COMMIT'); // Commit Transaksi
 
         res.status(201).json({ 
             message: 'Pesanan berhasil dicatat dan stok diperbarui. Lanjutkan ke WhatsApp.',
@@ -60,7 +53,6 @@ router.post('/', async (req, res) => {
     } catch (err) {
         await client.query('ROLLBACK'); // Rollback jika gagal
         console.error('Error saat membuat pesanan:', err.stack);
-        // Kirim error spesifik ke frontend (debug)
         res.status(500).json({ error: 'Gagal menyimpan order ke DB. Rollback dilakukan. (Cek log server)' });
     } finally {
         client.release();
@@ -70,7 +62,6 @@ router.post('/', async (req, res) => {
 // Endpoint 2: GET /api/orders (Read All Orders - HANYA ADMIN)
 router.get('/', protect, admin, async (req, res) => {
     try {
-        // Mengambil orders dengan detail user
         const result = await db.query(`
             SELECT 
                 o.id, o.order_date, o.total_amount, o.status, 
@@ -110,7 +101,6 @@ router.put('/:id/status', protect, admin, async (req, res) => {
 });
 
 // Endpoint 4: GET /api/orders/:id (Read Single Order Detail - HANYA ADMIN)
-// Diperlukan untuk detail pesanan/pembuatan pesan WA
 router.get('/:id', protect, admin, async (req, res) => {
     const { id } = req.params;
     
@@ -131,7 +121,7 @@ router.get('/:id', protect, admin, async (req, res) => {
         
         const order = orderHeaderResult.rows[0];
 
-        // 2. Ambil Detail Item Pesanan (menggunakan JOIN pada product_code)
+        // 2. Ambil Detail Item Pesanan (JOIN menggunakan product_code)
         const orderDetailsResult = await db.query(`
             SELECT 
                 od.quantity, od.unit_price, p.product_code, p.app_name, p.package_name, p.duration
@@ -140,7 +130,6 @@ router.get('/:id', protect, admin, async (req, res) => {
             WHERE od.order_id = $1
         `, [id]);
 
-        // Gabungkan semua data
         order.items = orderDetailsResult.rows;
 
         res.status(200).json(order);
@@ -149,16 +138,18 @@ router.get('/:id', protect, admin, async (req, res) => {
         console.error(`Error fetching order ${id} details:`, err.stack);
         res.status(500).json({ error: 'Gagal mengambil detail pesanan.' });
     }
+});
+
+
 // Endpoint 5: DELETE /api/orders/:id (Delete Order - HANYA ADMIN)
 router.delete('/:id', protect, admin, async (req, res) => {
     const { id } = req.params;
     const client = await db.pool.connect();
 
     try {
-        await client.query('BEGIN'); // Mulai Transaksi
+        await client.query('BEGIN');
         
-        // Asumsi relasi Foreign Key (order_details ke orders) menggunakan ON DELETE CASCADE.
-        // Jika iya, menghapus header order akan otomatis menghapus detailnya.
+        // Hapus Order Header (detail akan terhapus karena ON DELETE CASCADE)
         const result = await client.query('DELETE FROM public.orders WHERE id = $1', [id]);
 
         if (result.rowCount === 0) {
@@ -171,14 +162,11 @@ router.delete('/:id', protect, admin, async (req, res) => {
     } catch (err) {
         await client.query('ROLLBACK');
         console.error('Error deleting order:', err.stack);
-        // Error 23503: Foreign Key Violation (jika CASCADE tidak aktif)
-        if (err.code === '23503') { 
-            return res.status(500).json({ error: 'Gagal menghapus: Item detail masih terikat. Pastikan database menggunakan ON DELETE CASCADE.' });
-        }
         res.status(500).json({ error: 'Gagal menghapus pesanan. Cek log server.' });
     } finally {
         client.release();
     }
 });
+
 
 module.exports = router;
