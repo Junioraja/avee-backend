@@ -7,6 +7,13 @@ const port = process.env.PORT || 3000;
 const cors = require('cors');
 const session = require('express-session'); // Diperlukan untuk sesi Passport
 
+
+const allowedOrigins = [
+    'https://avee-backend-production-69b5.up.railway.app', // Domain Railway sendiri
+    'https://[DOMAIN-ANDA].vercel.app', // Ganti dengan domain Vercel Anda
+    'http://localhost:8080', // Untuk development lokal frontend
+];
+
 // --- 1. Konfigurasi CORS (Paling Awal) ---
 // Gunakan library 'cors' untuk penanganan CORS yang andal.
 const corsOptions = {
@@ -55,4 +62,5 @@ app.use('/api/orders', orderRoutes);
 // --- SERVER START ---
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
+
 });
