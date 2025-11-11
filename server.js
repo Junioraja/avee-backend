@@ -3,27 +3,36 @@ require('dotenv').config();
 
 const express = require('express');
 const app = express();
-const port = process.env.PORT || 3000;
+// Menggunakan port dari Environment Variables Railway
+const port = process.env.PORT || 3000; 
 const cors = require('cors');
-const session = require('express-session'); // Diperlukan untuk sesi Passport
+const session = require('express-session'); 
+// Import Auth/Passport (Wajib untuk Google Login)
+const passport = require('./auth'); 
 
-// --- 1. Konfigurasi CORS (Paling Awal) ---
-// Gunakan library 'cors' untuk penanganan CORS yang andal.
+// --- 1. KONFIGURASI CORS (Untuk Vercel Frontend) ---
+// Izinkan domain Vercel Anda dan domain Railway Anda
+const allowedOrigins = [
+    'https://aveepremiumstore.vercel.app', 
+    'https://avee-backend-production-69b5.up.railway.app', // URL Public API Anda
+    'http://localhost:8080', 
+    'http://localhost:3000', 
+    'http://127.0.0.1:5500' 
+];
+
 const corsOptions = {
-    // Izinkan Live Server dan Localhost
-    origin: '*', 
+    origin: allowedOrigins,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true, // Penting untuk sesi/cookie Passport
+    credentials: true,
     optionsSuccessStatus: 204
 };
-app.use(cors(corsOptions)); // DAFTARKAN CORS HANYA SEKALI
+app.use(cors(corsOptions));
 
 // --- 2. MIDDLEWARE UTAMA ---
-// Express JSON harus di awal untuk membaca request body
-app.use(express.json()); // HAPUS DUPLIKASI INI
+app.use(express.json()); 
 
-// --- 3. Konfigurasi Autentikasi (Passport/Session) ---
-const passport = require('./auth'); // Impor konfigurasi Passport
+// --- 3. KONFIGURASI AUTENTIKASI (Passport/Session) ---
+// Warning: connect.session().MemoryStore should ONLY be used for development/small testing.
 app.use(session({
     secret: process.env.JWT_SECRET, 
     resave: false,
@@ -40,17 +49,16 @@ app.get('/', (req, res) => {
 });
 
 // 🎯 Impor Routes API
+// PASTIKAN FILE-FILE INI ADA DI FOLDER ./routes/
 const productRoutes = require('./routes/productRoutes');
 const userRoutes = require('./routes/userRoutes');
 const orderRoutes = require('./routes/orderRoutes');
-// Tambahkan route order jika sudah dibuat
-// const orderRoutes = require('./routes/orderRoutes'); 
 
 // 🎯 Daftarkan Routes
 app.use('/api/products', productRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/orders', orderRoutes);
-// app.use('/api/orders', orderRoutes); // Uncomment jika sudah ada
+
 
 // --- SERVER START ---
 app.listen(port, () => {
