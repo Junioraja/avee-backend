@@ -1,25 +1,24 @@
 // db.js
 const { Pool } = require('pg');
 
-// Ambil URL koneksi langsung dari environment variables Railway
-// Nilainya adalah: postgresql://postgres:qUesJicTxKmhtgRhRjwbjFuwvNZQLiLg@postgres.railway.internal:5432/railway
+// Ambil URL koneksi lengkap yang disediakan oleh Railway
 const connectionString = process.env.DATABASE_URL;
 
-// Siapkan konfigurasi koneksi
+// --- KONFIGURASI KONEKSI ---
 let dbConfig;
 
 if (connectionString) {
-    // Jika DATABASE_URL ada (lingkungan Railway/Production)
+    // Lingkungan Railway/Production: Menggunakan URL lengkap
+    // Ini menyelesaikan masalah ENOTFOUND karena mengambil host yang benar dari Railway
     dbConfig = {
         connectionString: connectionString,
-        // Tambahkan konfigurasi SSL/TLS wajib untuk koneksi internal Railway/Cloud
+        // Tambahkan konfigurasi SSL/TLS wajib untuk koneksi cloud
         ssl: {
             rejectUnauthorized: false // Mengabaikan verifikasi sertifikat (seringkali diperlukan untuk internal PaaS)
         }
     };
 } else {
-    // Jika DATABASE_URL tidak ada (lingkungan lokal/testing)
-    // Gunakan variabel terpisah dari .env lokal Anda (Fallback)
+    // Fallback untuk development lokal (ketika menjalankan 'npm run dev')
     dbConfig = {
         user: process.env.DB_USER,
         host: process.env.DB_HOST,
@@ -29,20 +28,20 @@ if (connectionString) {
     };
 }
 
-
 const pool = new Pool(dbConfig);
 
 
 // Test koneksi saat modul dimuat
 pool.query('SELECT NOW()', (err, res) => {
     if (err) {
+        // Log error di sini jika koneksi gagal
         console.error('Error connecting to the database:', err.stack);
     } else {
         console.log('Database connected successfully:', res.rows[0].now);
     }
 });
 
-// Mengekspor fungsi query agar route API dapat menggunakannya
+// Mengekspor fungsi query dan pool
 module.exports = {
     query: (text, params) => pool.query(text, params),
     pool: pool,
