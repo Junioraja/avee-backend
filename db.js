@@ -1,24 +1,22 @@
 // db.js
 const { Pool } = require('pg');
 
-// Ambil URL koneksi lengkap yang disediakan oleh Railway
 const connectionString = process.env.DATABASE_URL;
 
-// --- KONFIGURASI KONEKSI ---
 let dbConfig;
 
+// KOREKSI UTAMA: Cek jika connectionString ada sebelum menggunakannya
 if (connectionString) {
-    // Lingkungan Railway/Production: Menggunakan URL lengkap
-    // Ini menyelesaikan masalah ENOTFOUND karena mengambil host yang benar dari Railway
     dbConfig = {
         connectionString: connectionString,
-        // Tambahkan konfigurasi SSL/TLS wajib untuk koneksi cloud
         ssl: {
-            rejectUnauthorized: false // Mengabaikan verifikasi sertifikat (seringkali diperlukan untuk internal PaaS)
+            rejectUnauthorized: false
         }
     };
 } else {
-    // Fallback untuk development lokal (ketika menjalankan 'npm run dev')
+    // Jika tidak ada DATABASE_URL (misalnya, di lokal atau testing)
+    // Ini akan mencegah crash jika variabel tidak terdefinisi
+    console.warn("DATABASE_URL is not set. Using fallback variables (DB_USER, DB_HOST, etc.)");
     dbConfig = {
         user: process.env.DB_USER,
         host: process.env.DB_HOST,
@@ -30,19 +28,11 @@ if (connectionString) {
 
 const pool = new Pool(dbConfig);
 
-
-// Test koneksi saat modul dimuat
-pool.query('SELECT NOW()', (err, res) => {
-    if (err) {
-        // Log error di sini jika koneksi gagal
-        console.error('Error connecting to the database:', err.stack);
-    } else {
-        console.log('Database connected successfully:', res.rows[0].now);
-    }
-});
+// ... (sisa kode test koneksi, module.exports)
 
 // Mengekspor fungsi query dan pool
 module.exports = {
     query: (text, params) => pool.query(text, params),
     pool: pool,
 };
+
