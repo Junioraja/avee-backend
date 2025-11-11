@@ -12,18 +12,14 @@ const passport = require('./auth');
 
 // --- 1. KONFIGURASI CORS (Untuk Vercel Frontend) ---
 // Izinkan domain Vercel Anda dan domain Railway Anda
-const allowedOrigins = [
-    // Tambahkan domain Vercel yang sudah diconfig Anda (Contoh: https://aveepremiumstore.vercel.app)
-    'https://aveepremiumstore.vercel.app', 
-    
-    // Domain Publik API Railway Anda
-    'https://avee-backend-production-69b5.up.railway.app', 
-
-    // Domain Pengembangan Lokal
-    'http://localhost:8080', 
-    'http://localhost:3000', 
-    'http://127.0.0.1:5500' 
-];
+const corsOptions = {
+    // Izinkan SEMUA origin (SOLUSI UNIVERSAL)
+    origin: true, // Atau gunakan '*' jika ini gagal
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+    optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
 
 const corsOptions = {
     origin: allowedOrigins,
@@ -69,4 +65,5 @@ app.use('/api/orders', orderRoutes);
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
+
 
