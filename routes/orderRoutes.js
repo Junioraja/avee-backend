@@ -149,7 +149,36 @@ router.get('/:id', protect, admin, async (req, res) => {
         console.error(`Error fetching order ${id} details:`, err.stack);
         res.status(500).json({ error: 'Gagal mengambil detail pesanan.' });
     }
-});
+// Endpoint 5: DELETE /api/orders/:id (Delete Order - HANYA ADMIN)
+router.delete('/:id', protect, admin, async (req, res) => {
+    const { id } = req.params;
+    const client = await db.pool.connect();
 
+    try {
+        await client.query('BEGIN'); // Mulai Transaksi
+        
+        // Asumsi relasi Foreign Key (order_details ke orders) menggunakan ON DELETE CASCADE.
+        // Jika iya, menghapus header order akan otomatis menghapus detailnya.
+        const result = await client.query('DELETE FROM public.orders WHERE id = $1', [id]);
+
+        if (result.rowCount === 0) {
+            throw new Error('Pesanan tidak ditemukan.');
+        }
+        
+        await client.query('COMMIT');
+        res.status(200).json({ message: `Pesanan #${id} berhasil dihapus.` });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Error deleting order:', err.stack);
+        // Error 23503: Foreign Key Violation (jika CASCADE tidak aktif)
+        if (err.code === '23503') { 
+            return res.status(500).json({ error: 'Gagal menghapus: Item detail masih terikat. Pastikan database menggunakan ON DELETE CASCADE.' });
+        }
+        res.status(500).json({ error: 'Gagal menghapus pesanan. Cek log server.' });
+    } finally {
+        client.release();
+    }
+});
 
 module.exports = router;
