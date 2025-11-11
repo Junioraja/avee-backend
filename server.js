@@ -7,26 +7,33 @@ const app = express();
 const port = process.env.PORT || 3000; 
 const cors = require('cors');
 const session = require('express-session'); 
-// Import Auth/Passport (Wajib untuk Google Login)
 const passport = require('./auth'); 
 
-// --- 1. KONFIGURASI CORS (Untuk Vercel Frontend) ---
-// Izinkan domain Vercel Anda dan domain Railway Anda
+// --- 1. KONFIGURASI CORS (KRUSIAL UNTUK KONEKSI VERCEL) ---
+// PASTIKAN HANYA ADA SATU DEFINISI CORS di file ini
+const allowedOrigins = [
+    // Domain Vercel Anda
+    'https://aveepremiumstore.vercel.app', 
+    // Domain Publik API Railway Anda
+    'https://avee-backend-production-69b5.up.railway.app', 
+    // Domain Pengembangan Lokal
+    'http://localhost:8080', 
+    'http://localhost:3000', 
+    'http://127.0.0.1:5500' 
+];
+
 const corsOptions = {
-    // Izinkan SEMUA origin (SOLUSI UNIVERSAL)
-    origin: true, // Atau gunakan '*' jika ini gagal
+    origin: allowedOrigins, // Mengizinkan domain spesifik
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
+    credentials: true, // Penting untuk sesi dan cookie
     optionsSuccessStatus: 204
 };
-app.use(cors(corsOptions));
-
+app.use(cors(corsOptions)); // Terapkan CORS
 
 // --- 2. MIDDLEWARE UTAMA ---
 app.use(express.json()); 
 
 // --- 3. KONFIGURASI AUTENTIKASI (Passport/Session) ---
-// Warning: connect.session().MemoryStore should ONLY be used for development/small testing.
 app.use(session({
     secret: process.env.JWT_SECRET, 
     resave: false,
@@ -43,7 +50,6 @@ app.get('/', (req, res) => {
 });
 
 // 🎯 Impor Routes API
-// PASTIKAN FILE-FILE INI ADA DI FOLDER ./routes/
 const productRoutes = require('./routes/productRoutes');
 const userRoutes = require('./routes/userRoutes');
 const orderRoutes = require('./routes/orderRoutes');
@@ -58,6 +64,3 @@ app.use('/api/orders', orderRoutes);
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
-
-
-
