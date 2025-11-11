@@ -21,13 +21,6 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-const corsOptions = {
-    origin: allowedOrigins,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
-    optionsSuccessStatus: 204
-};
-app.use(cors(corsOptions));
 
 // --- 2. MIDDLEWARE UTAMA ---
 app.use(express.json()); 
@@ -65,5 +58,6 @@ app.use('/api/orders', orderRoutes);
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
+
 
 
