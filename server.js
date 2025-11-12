@@ -1,83 +1,60 @@
 // server.js
-require('dotenv').config();
+require('dotenv').config(); 
+
 const express = require('express');
-const session = require('express-session');
-const cors = require('cors');
-const passport = require('./auth');
-
 const app = express();
+// Menggunakan port dari Environment Variables Railway
+const port = process.env.PORT || 3000; 
+const cors = require('cors');
+const session = require('express-session'); 
+// Import Auth/Passport (Wajib untuk Google Login)
+const passport = require('./auth'); 
 
-// Gunakan port dari Railway
-const port = process.env.PORT || 3000;
-
-// ====== CORS CONFIGURATION ======
-const allowedOrigins = [
-  'https://aveepremiumstore.vercel.app',          // frontend di Vercel
-  'https://avee-backend-production-69b5.up.railway.app', // backend Railway
-  'http://localhost:3000',                        // lokal dev (React)
-  'http://127.0.0.1:5500'                         // lokal testing (HTML)
-];
-
+// --- 1. KONFIGURASI CORS (Untuk Vercel Frontend) ---
+// Izinkan domain Vercel Anda dan domain Railway Anda
 const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('CORS blocked for origin: ' + origin));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+    // Izinkan SEMUA origin (SOLUSI UNIVERSAL)
+    origin: true, // Atau gunakan '*' jika ini gagal
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+    optionsSuccessStatus: 204
 };
-
 app.use(cors(corsOptions));
 
-// ====== MIDDLEWARE ======
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Session setup (gunakan JWT_SECRET dari .env)
+// --- 2. MIDDLEWARE UTAMA ---
+app.use(express.json()); 
+
+// --- 3. KONFIGURASI AUTENTIKASI (Passport/Session) ---
+// Warning: connect.session().MemoryStore should ONLY be used for development/small testing.
 app.use(session({
-  secret: process.env.JWT_SECRET || 'default_secret',
-  resave: false,
-  saveUninitialized: true,
-  cookie: {
-    secure: false, // ubah ke true kalau pakai HTTPS penuh
-    maxAge: 1000 * 60 * 60 * 24 // 1 hari
-  }
+    secret: process.env.JWT_SECRET, 
+    resave: false,
+    saveUninitialized: true
 }));
-
-// Passport (kalau kamu pakai login system)
 app.use(passport.initialize());
 app.use(passport.session());
 
-// ====== DEBUG LOGGING (opsional) ======
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Origin: ${req.headers.origin}`);
-  next();
-});
+// --- 4. IMPOR DAN DAFTARKAN ROUTES ---
 
-// ====== ROUTES ======
+// Endpoint Test Sederhana
 app.get('/', (req, res) => {
-  res.status(200).json({ message: 'Avee Backend API running ✅' });
+    res.status(200).json({ message: 'Avee Backend API running.' });
 });
 
+// 🎯 Impor Routes API
+// PASTIKAN FILE-FILE INI ADA DI FOLDER ./routes/
 const productRoutes = require('./routes/productRoutes');
 const userRoutes = require('./routes/userRoutes');
 const orderRoutes = require('./routes/orderRoutes');
-
+const chatRoutes = require('./routes/chatRoutes');
+// 🎯 Daftarkan Routes
 app.use('/api/products', productRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api', chatRoutes);
 
-// ====== ERROR HANDLING ======
-app.use((err, req, res, next) => {
-  console.error('❌ Error:', err.message);
-  res.status(500).json({ error: err.message });
-});
-
-// ====== SERVER START ======
+// --- SERVER START ---
 app.listen(port, () => {
-  console.log(`✅ Server running on port ${port}`);
+    console.log(`Server is running on http://localhost:${port}`);
 });
