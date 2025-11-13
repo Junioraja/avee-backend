@@ -9,7 +9,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // --- 1. Inisialisasi Gemini ---
 // Kita gunakan 'gemini-pro' yang terbukti lebih stabil untuk workload chat
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-pro" }); 
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
 
 // --- 2. Fungsi Pengambilan Data Produk (Konteks) ---
 // Fungsi ini hanya akan mengambil produk yang READY STOCK untuk optimasi prompt
@@ -138,3 +138,4 @@ router.post('/chat', async (req, res) => {
 });
 
 module.exports = router;
+
