@@ -25,22 +25,54 @@ async function getProductsFromYourDatabase() {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+// Endpoint Chatbot: POST /api/chat
 router.post('/chat', async (req, res) => {
-    console.log("--> API /chat hit. Mulai proses."); // [DEBUG] Tambahkan ini
+    console.log("--> API /chat hit. Mulai proses.");
     try {
-        // ...
-        
+        const { message } = req.body;
+        if (!message) {
+            return res.status(400).json({ error: "Pesan tidak boleh kosong." });
+        }
+
         // 1. Ambil data produk (konteks)
         const products = await getProductsFromYourDatabase();
-        console.log("Produk berhasil diambil:", products.length); // [DEBUG] Tambahkan ini
+        console.log("Produk berhasil diambil:", products.length);
+        const productDataString = JSON.stringify(products);
 
-        // ... sisa kode
+        // 2. Buat Prompt untuk Gemini
+        const prompt = `
+            Kamu adalah "Aunty Jane", asisten chatbot AI yang ramah, sopan, dan sedikit gaul untuk "Avee Premium Store".
+
+            TUGAS UTAMA: Jawab pertanyaan pelanggan HANYA berdasarkan konteks data produk yang diberikan.
+
+            ATURAN:
+            1.  Selalu gunakan sapaan "Aunty" saat merujuk ke diri sendiri.
+            2.  Jawab dalam Bahasa Indonesia yang santai.
+            3.  Jika pelanggan bertanya budget (misal "30k"), cari produk di bawah harga itu.
+            4.  Jika pelanggan bertanya "drakor", rekomendasikan produk di kategori "Hiburan" seperti Viu atau WeTV.
+            5.  Jika kamu tidak yakin atau pertanyaan di luar konteks toko, katakan: "Aunty kurang yakin, coba tanya admin langsung via WhatsApp ya."
+
+            KONTEKS DATA PRODUK (JSON):
+            ${productDataString}
+
+            PERTANYAAN PELANGGAN:
+            "${message}"
+        `;
+
+        // 3. Panggil Gemini
+        const result = await model.generateContent(prompt);
+        const text = result.response.text;
+
+        // 4. Kirim jawaban
+        res.json({ reply: text });
 
     } catch (error) {
-        console.error("Critical Error in /api/chat:", error); // [DEBUG] Pastikan ini tercatat
-        res.status(500).json({ reply: "Server 500: Cek log backend untuk error DB/Gemini." });
+        console.error("Error di /api/chat:", error);
+        // Kirim pesan fallback yang ramah
+        console.error("Critical Error in /api/chat:", error);
+        res.status(500).json({ reply: "Aduh, Aunty lagi pusing nih, server lagi sibuk. Coba lagi nanti ya!" });
     }
 });
 
-
 module.exports = router;
+
