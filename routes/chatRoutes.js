@@ -2,32 +2,31 @@
 
 const express = require('express');
 const router = express.Router();
-const db = require('../db'); // <-- Panggil koneksi database Anda
+const db = require('../db'); 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+// Inisialisasi Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // Pastikan 2.5-flash
 
 // --- Fungsi untuk mengambil data produk dari database ---
 async function getProductsFromYourDatabase() {
-    // Gunakan sintaks query yang sama dengan di productRoutes.js
     const ALL_PRODUCT_FIELDS = `
         product_code, app_name, package_name, duration, price, stock, data_category
     `;
     try {
+        // [TINDAKAN] Pastikan query ini berhasil dieksekusi
         const result = await db.query(`SELECT ${ALL_PRODUCT_FIELDS} FROM products WHERE stock > 0 ORDER BY app_name, price ASC`);
+        console.log("SUCCESS: Produk berhasil diambil untuk Chatbot:", result.rows.length);
         return result.rows;
     } catch (error) {
-        console.error("Error fetching products for Chatbot context:", error);
-        // Penting: Jika gagal, kembalikan array kosong agar bot tidak error total
-        return [];
+        console.error("FATAL ERROR: Gagal mengambil produk untuk Chatbot Context (DB Error):", error.message);
+        return []; // Wajib kembalikan array kosong jika gagal
     }
 }
 
-// Inisialisasi Gemini (Ambil API key dari environment variable)
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
 // Endpoint Chatbot: POST /api/chat
 router.post('/chat', async (req, res) => {
-    console.log("--> API /chat hit. Mulai proses.");
     try {
         const { message } = req.body;
         if (!message) {
@@ -36,7 +35,10 @@ router.post('/chat', async (req, res) => {
 
         // 1. Ambil data produk (konteks)
         const products = await getProductsFromYourDatabase();
-        console.log("Produk berhasil diambil:", products.length);
+        if (products.length === 0) {
+             // Jika DB gagal, kita kirim pesan error yang jelas ke frontend
+             return res.status(503).json({ reply: "Aunty tidak bisa mengakses katalog produk saat ini. Coba lagi nanti." });
+        }
         const productDataString = JSON.stringify(products);
 
         // 2. Buat Prompt untuk Gemini
@@ -69,10 +71,8 @@ router.post('/chat', async (req, res) => {
     } catch (error) {
         console.error("Error di /api/chat:", error);
         // Kirim pesan fallback yang ramah
-        console.error("Critical Error in /api/chat:", error);
         res.status(500).json({ reply: "Aduh, Aunty lagi pusing nih, server lagi sibuk. Coba lagi nanti ya!" });
     }
 });
 
 module.exports = router;
-
