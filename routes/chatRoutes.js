@@ -25,8 +25,8 @@ async function getProductsFromYourDatabase() {
     }
 }
 
-// Endpoint Chatbot: POST /api/chat
 router.post('/chat', async (req, res) => {
+    console.log("--> API /chat hit. Mulai proses.");
     try {
         const { message } = req.body;
         if (!message) {
@@ -36,7 +36,6 @@ router.post('/chat', async (req, res) => {
         // 1. Ambil data produk (konteks)
         const products = await getProductsFromYourDatabase();
         if (products.length === 0) {
-             // Jika DB gagal, kita kirim pesan error yang jelas ke frontend
              return res.status(503).json({ reply: "Aunty tidak bisa mengakses katalog produk saat ini. Coba lagi nanti." });
         }
         const productDataString = JSON.stringify(products);
@@ -63,13 +62,25 @@ router.post('/chat', async (req, res) => {
 
         // 3. Panggil Gemini
         const result = await model.generateContent(prompt);
-        const text = result.response.text;
+        
+        // [PERBAIKAN 1] Ambil respons dengan benar
+        const response = result.response;
+        
+        // [PERBAIKAN 2] Panggil .text() sebagai fungsi
+        const text = response.text && response.text(); 
+
+        // [PERBAIKAN 3] Cek jika respons diblokir oleh Google (Safety)
+        if (!text) {
+            console.error("Gemini Error: Respons kosong atau diblokir (safety).");
+            // Kirim respons error yang ramah ke pengguna
+            return res.status(500).json({ reply: "Aduh, Aunty lagi bingung mau jawab apa. Mungkin bisa tanya yang lain?" });
+        }
 
         // 4. Kirim jawaban
         res.json({ reply: text });
 
     } catch (error) {
-        console.error("Error di /api/chat:", error);
+        console.error("Error di /api/chat:", error.message);
         // Kirim pesan fallback yang ramah
         res.status(500).json({ reply: "Aduh, Aunty lagi pusing nih, server lagi sibuk. Coba lagi nanti ya!" });
     }
