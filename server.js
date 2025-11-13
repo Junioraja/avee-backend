@@ -52,9 +52,10 @@ const chatRoutes = require('./routes/chatRoutes');
 app.use('/api/products', productRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api', chatRoutes);
+app.use('/api/chat', chatRoutes);
 
 // --- SERVER START ---
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
+
