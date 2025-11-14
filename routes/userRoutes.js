@@ -111,6 +111,33 @@ router.post('/login', async (req, res) => {
         res.status(500).json({ error: 'Gagal melakukan login.' });
     }
 });
+// [BARU] Endpoint 4: GET /api/users/me (Read Profile for Logged-in User)
+// Diperlukan untuk profil.html
+// 'protect' akan memvalidasi token dan menaruh payload (userId, role) di req.user
+router.get('/me', protect, async (req, res) => {
+    try {
+        // Ambil ID pengguna dari token yang sudah divalidasi oleh 'protect'
+        const userId = req.user.userId; 
+
+        const result = await db.query(
+            `SELECT ${USER_FIELDS} FROM users WHERE id = $1`,
+            [userId]
+        );
+
+        const user = result.rows[0];
+
+        if (!user) {
+            return res.status(404).json({ error: 'Pengguna tidak ditemukan.' });
+        }
+
+        // Kirim kembali data pengguna lengkap (termasuk referral_code, dll)
+        res.status(200).json(user); 
+
+    } catch (err) {
+        console.error('Error fetching user profile:', err.stack);
+        res.status(500).json({ error: 'Gagal mengambil data profil.' });
+    }
+});
 
 // Endpoint 3: GET /api/users (Read All Users - HANYA ADMIN)
 // Diperlukan untuk Manajemen Pengguna di admin.html
