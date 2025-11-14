@@ -168,5 +168,67 @@ router.delete('/:id', protect, admin, async (req, res) => {
     }
 });
 
+// [BARU] Endpoint 6: GET /api/orders/myhistory (Read User's Own Orders)
+// Diperlukan untuk halaman listorder.html
+router.get('/myhistory', protect, async (req, res) => {
+    try {
+        // Ambil ID pengguna dari token (via middleware 'protect')
+        const userId = req.user.userId;
+
+        // Query ini mengambil semua pesanan untuk pengguna yang login
+        // dan menggabungkan detail itemnya menjadi array JSON.
+        const query = `
+            SELECT 
+                o.id,
+                o.order_date,
+                o.status,
+                o.payment_method,
+                o.total_amount,
+                
+                -- Kolom-kolom ini diperlukan untuk modal "Lihat Akun".
+                -- Pastikan Anda telah menambahkannya ke tabel 'orders' Anda.
+                o.account_email,
+                o.account_password,
+                o.account_profile,
+                o.account_pin,
+                
+                json_agg(
+                    json_build_object(
+                        'product_name', p.package_name,
+                        'duration', p.duration,
+                        'price', p.price,
+                        'product_code', p.product_code
+                    )
+                ) AS items
+            FROM 
+                public.orders o
+            -- Menggunakan 'order_details' sesuai file Anda
+            JOIN 
+                public.order_details od ON o.id = od.order_id
+            LEFT JOIN 
+                public.products p ON od.product_code = p.product_code
+            WHERE 
+                o.user_id = $1
+            GROUP BY 
+                o.id
+            ORDER BY 
+                o.order_date DESC;
+        `;
+
+        const result = await db.query(query, [userId]);
+
+        res.status(200).json(result.rows);
+
+    } catch (err) {
+        console.error('Error fetching order history:', err.stack);
+        // Kirim error spesifik jika kolom tidak ada
+        if (err.code === '42703') { // 'undefined_column'
+             return res.status(500).json({ error: `Gagal query: Kolom tidak ditemukan (Pastikan 'account_email', 'payment_method', dll ada di tabel 'orders').` });
+        }
+        res.status(500).json({ error: 'Gagal mengambil riwayat pesanan.' });
+    }
+});
+
 
 module.exports = router;
+
