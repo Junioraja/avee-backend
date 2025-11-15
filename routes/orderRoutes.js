@@ -9,21 +9,34 @@ const { protect, admin } = require('../middleware/authMiddleware');
 // ROUTE 1: POST /api/orders (Membuat Pesanan Baru)
 // =========================================================
 router.post('/', async (req, res) => {
-    const { userId, totalAmount, items, paymentMethod } = req.body;
+    // account_details ditambahkan sebagai data opsional yang mungkin dikirim dari frontend
+    const { userId, totalAmount, items, paymentMethod, account_email, account_password, account_profile, account_pin } = req.body;
 
+    // Validasi dasar
     if (!items || items.length === 0 || !totalAmount) {
-        return res.status(400).json({ error: 'Data pesanan tidak lengkap.' });
+        return res.status(400).json({ error: 'Data pesanan tidak lengkap (items atau totalAmount kosong).' });
     }
 
     const client = await db.pool.connect();
 
     try {
-        await client.query('BEGIN');
+        await client.query('BEGIN'); // Mulai transaksi
 
         // 1. Masukkan data ke public.orders
         const orderResult = await client.query(
-            'INSERT INTO public.orders (user_id, total_amount, payment_method) VALUES ($1, $2, $3) RETURNING id, order_date',
-            [userId || null, totalAmount, paymentMethod || null]
+            `INSERT INTO public.orders 
+                (user_id, total_amount, payment_method, account_email, account_password, account_profile, account_pin) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7) 
+             RETURNING id, order_date`,
+            [
+                userId || null, 
+                totalAmount, 
+                paymentMethod || null,
+                account_email || null,
+                account_password || null,
+                account_profile || null,
+                account_pin || null
+            ]
         );
         const orderId = orderResult.rows[0].id;
         const orderDate = orderResult.rows[0].order_date;
@@ -38,14 +51,21 @@ router.post('/', async (req, res) => {
                 [orderId, productCode, item.quantity, item.unitPrice]
             );
             
-            // b) Update Stok Produk
-            await client.query(
+            // b) Update Stok Produk dengan Pengecekan
+            const updateResult = await client.query(
+                // Query ini hanya akan mengupdate jika stok saat ini cukup
                 'UPDATE public.products SET stock = stock - $1 WHERE product_code = $2 AND stock >= $1',
                 [item.quantity, productCode]
             );
+            
+            // Pengecekan: Jika tidak ada baris yang diupdate, artinya stok kurang atau product_code salah
+            if (updateResult.rowCount === 0) {
+                // Lempar error agar ditangkap oleh blok catch dan memicu ROLLBACK
+                throw new Error(`Stok produk ${productCode} tidak mencukupi atau produk tidak valid.`); 
+            }
         }
         
-        await client.query('COMMIT');
+        await client.query('COMMIT'); // Commit transaksi jika semua berhasil
 
         res.status(201).json({
             message: 'Pesanan berhasil dicatat dan stok diperbarui. Lanjutkan ke WhatsApp.',
@@ -54,8 +74,14 @@ router.post('/', async (req, res) => {
         });
 
     } catch (err) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK'); // Batalkan semua operasi jika terjadi error
         console.error('Error saat membuat pesanan:', err.stack);
+        
+        // Tampilkan error yang lebih spesifik jika terkait stok
+        if (err.message.includes('Stok produk')) {
+             return res.status(400).json({ error: err.message });
+        }
+        
         res.status(500).json({ error: 'Gagal menyimpan order ke DB. Rollback dilakukan. (Cek log server)' });
     } finally {
         client.release();
@@ -107,7 +133,7 @@ router.get('/myhistory', protect, async (req, res) => {
 
         const result = await db.query(query, [userId]);
 
-        // PERBAIKAN: Mengemas respons dalam objek { orders: [...] }
+        // Mengemas respons dalam objek { orders: [...] }
         res.status(200).json({ orders: result.rows });
 
     } catch (err) {
@@ -144,6 +170,11 @@ router.put('/:id/status', protect, admin, async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
+    // Tambahkan validasi sederhana untuk status
+    if (!status) {
+        return res.status(400).json({ error: 'Status tidak boleh kosong.' });
+    }
+
     try {
         const result = await db.query(
             'UPDATE public.orders SET status = $1 WHERE id = $2 RETURNING id, status',
@@ -172,7 +203,8 @@ router.get('/:id', protect, admin, async (req, res) => {
         // 1. Ambil Header Pesanan
         const orderHeaderResult = await db.query(`
             SELECT 
-                o.id, o.order_date, o.total_amount, o.status, 
+                o.id, o.order_date, o.total_amount, o.status, o.payment_method,
+                o.account_email, o.account_password, o.account_profile, o.account_pin,
                 u.name as user_name, u.email as user_email
             FROM public.orders o
             LEFT JOIN public.users u ON o.user_id = u.id
@@ -188,7 +220,7 @@ router.get('/:id', protect, admin, async (req, res) => {
         // 2. Ambil Detail Item Pesanan (JOIN menggunakan product_code)
         const orderDetailsResult = await db.query(`
             SELECT 
-                od.quantity, od.unit_price, p.product_code, p.app_name, p.package_name, p.duration
+                od.quantity, od.unit_price, p.product_code, p.app_name, p.package_name, p.duration, p.price
             FROM public.order_details od
             JOIN public.products p ON od.product_code = p.product_code
             WHERE od.order_id = $1
@@ -214,11 +246,16 @@ router.delete('/:id', protect, admin, async (req, res) => {
     try {
         await client.query('BEGIN');
         
-        // Hapus Order Header (detail akan terhapus karena ON DELETE CASCADE)
+        // Hapus detail pesanan terlebih dahulu (jika tidak ada ON DELETE CASCADE)
+        // Jika tabel order_details memiliki ON DELETE CASCADE pada order_id, baris ini bisa diabaikan:
+        // await client.query('DELETE FROM public.order_details WHERE order_id = $1', [id]); 
+        
+        // Hapus Order Header
         const result = await client.query('DELETE FROM public.orders WHERE id = $1', [id]);
 
         if (result.rowCount === 0) {
-            throw new Error('Pesanan tidak ditemukan.');
+            // Gunakan throw new Error() agar langsung masuk ke blok catch dan ROLLBACK
+            throw new Error('Pesanan tidak ditemukan.'); 
         }
         
         await client.query('COMMIT');
@@ -227,6 +264,12 @@ router.delete('/:id', protect, admin, async (req, res) => {
     } catch (err) {
         await client.query('ROLLBACK');
         console.error('Error deleting order:', err.stack);
+        
+        // Tampilkan 404 jika errornya adalah 'Pesanan tidak ditemukan.'
+        if (err.message === 'Pesanan tidak ditemukan.') {
+             return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+        }
+        
         res.status(500).json({ error: 'Gagal menghapus pesanan. Cek log server.' });
     } finally {
         client.release();
