@@ -6,21 +6,24 @@ const { protect, admin } = require('../middleware/authMiddleware'); // Middlewar
 
 // Endpoint 1: POST /api/orders (Membuat Pesanan Baru - Mencatat Transaksi)
 router.post('/', async (req, res) => {
-    const { userId, totalAmount, items } = req.body; 
+    // [EDIT] Menambahkan 'paymentMethod' dari body
+    const { userId, totalAmount, items, paymentMethod } = req.body;
 
     if (!items || items.length === 0 || !totalAmount) {
         return res.status(400).json({ error: 'Data pesanan tidak lengkap.' });
     }
 
     const client = await db.pool.connect();
-    
+
     try {
         await client.query('BEGIN'); // Mulai Transaksi
 
-        // 1. Masukkan data ke public.orders (Pastikan public. ada)
+        // 1. Masukkan data ke public.orders
         const orderResult = await client.query(
-            'INSERT INTO public.orders (user_id, total_amount) VALUES ($1, $2) RETURNING id, order_date',
-            [userId || null, totalAmount]
+            // [EDIT] Menambahkan kolom 'payment_method'
+            'INSERT INTO public.orders (user_id, total_amount, payment_method) VALUES ($1, $2, $3) RETURNING id, order_date',
+            // [EDIT] Menambahkan variabel 'paymentMethod'
+            [userId || null, totalAmount, paymentMethod || null]
         );
         const orderId = orderResult.rows[0].id;
         const orderDate = orderResult.rows[0].order_date;
@@ -37,14 +40,14 @@ router.post('/', async (req, res) => {
             
             // b) Update Stok Produk (Menggunakan product_code)
             await client.query(
-                'UPDATE public.products SET stock = stock - $1 WHERE product_code = $2 AND stock >= $1', 
+                'UPDATE public.products SET stock = stock - $1 WHERE product_code = $2 AND stock >= $1',
                 [item.quantity, productCode]
             );
         }
         
         await client.query('COMMIT'); // Commit Transaksi
 
-        res.status(201).json({ 
+        res.status(201).json({
             message: 'Pesanan berhasil dicatat dan stok diperbarui. Lanjutkan ke WhatsApp.',
             orderId: orderId,
             orderDate: orderDate
@@ -80,7 +83,7 @@ router.get('/', protect, admin, async (req, res) => {
 // Endpoint 3: PUT /api/orders/:id/status (Update Status Pesanan - HANYA ADMIN)
 router.put('/:id/status', protect, admin, async (req, res) => {
     const { id } = req.params;
-    const { status } = req.body; 
+    const { status } = req.body;
 
     try {
         const result = await db.query(
@@ -168,7 +171,7 @@ router.delete('/:id', protect, admin, async (req, res) => {
     }
 });
 
-// [BARU] Endpoint 6: GET /api/orders/myhistory (Read User's Own Orders)
+// Endpoint 6: GET /api/orders/myhistory (Read User's Own Orders)
 // Diperlukan untuk halaman listorder.html
 router.get('/myhistory', protect, async (req, res) => {
     try {
@@ -186,7 +189,6 @@ router.get('/myhistory', protect, async (req, res) => {
                 o.total_amount,
                 
                 -- Kolom-kolom ini diperlukan untuk modal "Lihat Akun".
-                -- Pastikan Anda telah menambahkannya ke tabel 'orders' Anda.
                 o.account_email,
                 o.account_password,
                 o.account_profile,
@@ -221,14 +223,8 @@ router.get('/myhistory', protect, async (req, res) => {
 
     } catch (err) {
         console.error('Error fetching order history:', err.stack);
-        // Kirim error spesifik jika kolom tidak ada
-        if (err.code === '42703') { // 'undefined_column'
-             return res.status(500).json({ error: `Gagal query: Kolom tidak ditemukan (Pastikan 'account_email', 'payment_method', dll ada di tabel 'orders').` });
-        }
         res.status(500).json({ error: 'Gagal mengambil riwayat pesanan.' });
     }
 });
 
-
 module.exports = router;
-
