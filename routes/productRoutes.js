@@ -13,12 +13,30 @@ const ALL_PRODUCT_FIELDS = `
     logo_url, banner_url, purchase_price, discount_percentage, description
 `;
 
-// Endpoint 1: GET /api/products (Read All - Semua User)
+// Endpoint 1: GET /api/products (Read All - Semua User ATAU Read by product_code)
 router.get('/', async (req, res) => {
+    // [PERBAIKAN] Ambil product_code dari query parameter
+    const { product_code } = req.query;
+
     try {
-        // Menggunakan product_code sebagai ID utama untuk SELECT
-        const result = await db.query(`SELECT ${ALL_PRODUCT_FIELDS} FROM products ORDER BY app_name, price ASC`);
-        res.status(200).json(result.rows);
+        if (product_code) {
+            // [LOGIKA BARU] Jika ada product_code, cari SATU produk spesifik
+            // (Dipanggil oleh order.html)
+            const result = await db.query(
+                `SELECT ${ALL_PRODUCT_FIELDS} FROM products WHERE product_code = $1`,
+                [product_code]
+            );
+            
+            // Mengembalikan array (meskipun hanya 1 item) agar konsisten 
+            // dengan apa yang diharapkan oleh fetchProductDetails di order.html
+            res.status(200).json(result.rows); 
+
+        } else {
+            // [LOGIKA LAMA] Jika tidak ada product_code, ambil SEMUA produk
+            // (Dipanggil oleh index.html)
+            const result = await db.query(`SELECT ${ALL_PRODUCT_FIELDS} FROM products ORDER BY app_name, price ASC`);
+            res.status(200).json(result.rows);
+        }
     } catch (err) {
         console.error("Error fetching products:", err.stack);
         res.status(500).json({ error: 'Failed to fetch products' });
@@ -96,5 +114,6 @@ router.delete('/:id', protect, admin, async (req, res) => {
         res.status(500).json({ error: 'Gagal menghapus produk.' });
     }
 });
+
 
 module.exports = router;
