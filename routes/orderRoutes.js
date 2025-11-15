@@ -1,12 +1,14 @@
 // routes/orderRoutes.js
 const express = require('express');
 const router = express.Router();
-const db = require('../db');
-const { protect, admin } = require('../middleware/authMiddleware'); // Middleware Admin
+// Asumsi db dan middleware sudah didefinisikan dengan benar
+const db = require('../db'); 
+const { protect, admin } = require('../middleware/authMiddleware'); 
 
-// Endpoint 1: POST /api/orders (Membuat Pesanan Baru - Mencatat Transaksi)
+// =========================================================
+// ROUTE 1: POST /api/orders (Membuat Pesanan Baru)
+// =========================================================
 router.post('/', async (req, res) => {
-    // [EDIT] Menambahkan 'paymentMethod' dari body
     const { userId, totalAmount, items, paymentMethod } = req.body;
 
     if (!items || items.length === 0 || !totalAmount) {
@@ -16,13 +18,11 @@ router.post('/', async (req, res) => {
     const client = await db.pool.connect();
 
     try {
-        await client.query('BEGIN'); // Mulai Transaksi
+        await client.query('BEGIN');
 
         // 1. Masukkan data ke public.orders
         const orderResult = await client.query(
-            // [EDIT] Menambahkan kolom 'payment_method'
             'INSERT INTO public.orders (user_id, total_amount, payment_method) VALUES ($1, $2, $3) RETURNING id, order_date',
-            // [EDIT] Menambahkan variabel 'paymentMethod'
             [userId || null, totalAmount, paymentMethod || null]
         );
         const orderId = orderResult.rows[0].id;
@@ -30,22 +30,22 @@ router.post('/', async (req, res) => {
 
         // 2. Masukkan item detail ke public.order_details dan update stok
         for (const item of items) {
-            const productCode = item.productCode; // String unik dari frontend
+            const productCode = item.productCode;
             
-            // a) Masukkan detail pesanan (Relasi menggunakan product_code)
+            // a) Masukkan detail pesanan
             await client.query(
                 'INSERT INTO public.order_details (order_id, product_code, quantity, unit_price) VALUES ($1, $2, $3, $4)',
                 [orderId, productCode, item.quantity, item.unitPrice]
             );
             
-            // b) Update Stok Produk (Menggunakan product_code)
+            // b) Update Stok Produk
             await client.query(
                 'UPDATE public.products SET stock = stock - $1 WHERE product_code = $2 AND stock >= $1',
                 [item.quantity, productCode]
             );
         }
         
-        await client.query('COMMIT'); // Commit Transaksi
+        await client.query('COMMIT');
 
         res.status(201).json({
             message: 'Pesanan berhasil dicatat dan stok diperbarui. Lanjutkan ke WhatsApp.',
@@ -54,7 +54,7 @@ router.post('/', async (req, res) => {
         });
 
     } catch (err) {
-        await client.query('ROLLBACK'); // Rollback jika gagal
+        await client.query('ROLLBACK');
         console.error('Error saat membuat pesanan:', err.stack);
         res.status(500).json({ error: 'Gagal menyimpan order ke DB. Rollback dilakukan. (Cek log server)' });
     } finally {
@@ -62,7 +62,63 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Endpoint 2: GET /api/orders (Read All Orders - HANYA ADMIN)
+// =========================================================
+// ROUTE 2: GET /api/orders/myhistory (Riwayat Pesanan Pengguna)
+// PENTING: HARUS DITEMPATKAN DI ATAS /:id
+// =========================================================
+router.get('/myhistory', protect, async (req, res) => {
+    try {
+        // Ambil ID pengguna dari token (via middleware 'protect')
+        const userId = req.user.userId;
+
+        // Query untuk mengambil semua pesanan pengguna
+        const query = `
+            SELECT 
+                o.id,
+                o.order_date,
+                o.status,
+                o.payment_method,
+                o.total_amount,
+                o.account_email,
+                o.account_password,
+                o.account_profile,
+                o.account_pin,
+                json_agg(
+                    json_build_object(
+                        'product_name', p.package_name,
+                        'duration', p.duration,
+                        'price', p.price,
+                        'product_code', p.product_code
+                    )
+                ) AS items
+            FROM 
+                public.orders o
+            JOIN 
+                public.order_details od ON o.id = od.order_id
+            LEFT JOIN 
+                public.products p ON od.product_code = p.product_code
+            WHERE 
+                o.user_id = $1
+            GROUP BY 
+                o.id
+            ORDER BY 
+                o.order_date DESC;
+        `;
+
+        const result = await db.query(query, [userId]);
+
+        // PERBAIKAN: Mengemas respons dalam objek { orders: [...] }
+        res.status(200).json({ orders: result.rows });
+
+    } catch (err) {
+        console.error('Error fetching order history:', err.stack);
+        res.status(500).json({ error: 'Gagal mengambil riwayat pesanan.' });
+    }
+});
+
+// =========================================================
+// ROUTE 3: GET /api/orders (Read All Orders - HANYA ADMIN)
+// =========================================================
 router.get('/', protect, admin, async (req, res) => {
     try {
         const result = await db.query(`
@@ -80,7 +136,10 @@ router.get('/', protect, admin, async (req, res) => {
     }
 });
 
-// Endpoint 3: PUT /api/orders/:id/status (Update Status Pesanan - HANYA ADMIN)
+
+// =========================================================
+// ROUTE 4: PUT /api/orders/:id/status (Update Status Pesanan - HANYA ADMIN)
+// =========================================================
 router.put('/:id/status', protect, admin, async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
@@ -103,7 +162,9 @@ router.put('/:id/status', protect, admin, async (req, res) => {
     }
 });
 
-// Endpoint 4: GET /api/orders/:id (Read Single Order Detail - HANYA ADMIN)
+// =========================================================
+// ROUTE 5: GET /api/orders/:id (Read Single Order Detail - HANYA ADMIN)
+// =========================================================
 router.get('/:id', protect, admin, async (req, res) => {
     const { id } = req.params;
     
@@ -143,8 +204,9 @@ router.get('/:id', protect, admin, async (req, res) => {
     }
 });
 
-
-// Endpoint 5: DELETE /api/orders/:id (Delete Order - HANYA ADMIN)
+// =========================================================
+// ROUTE 6: DELETE /api/orders/:id (Delete Order - HANYA ADMIN)
+// =========================================================
 router.delete('/:id', protect, admin, async (req, res) => {
     const { id } = req.params;
     const client = await db.pool.connect();
@@ -168,62 +230,6 @@ router.delete('/:id', protect, admin, async (req, res) => {
         res.status(500).json({ error: 'Gagal menghapus pesanan. Cek log server.' });
     } finally {
         client.release();
-    }
-});
-
-// Endpoint 6: GET /api/orders/myhistory (Read User's Own Orders)
-// Diperlukan untuk halaman listorder.html
-router.get('/myhistory', protect, async (req, res) => {
-    try {
-        // Ambil ID pengguna dari token (via middleware 'protect')
-        const userId = req.user.userId;
-
-        // Query ini mengambil semua pesanan untuk pengguna yang login
-        // dan menggabungkan detail itemnya menjadi array JSON.
-        const query = `
-            SELECT 
-                o.id,
-                o.order_date,
-                o.status,
-                o.payment_method,
-                o.total_amount,
-                
-                -- Kolom-kolom ini diperlukan untuk modal "Lihat Akun".
-                o.account_email,
-                o.account_password,
-                o.account_profile,
-                o.account_pin,
-                
-                json_agg(
-                    json_build_object(
-                        'product_name', p.package_name,
-                        'duration', p.duration,
-                        'price', p.price,
-                        'product_code', p.product_code
-                    )
-                ) AS items
-            FROM 
-                public.orders o
-            -- Menggunakan 'order_details' sesuai file Anda
-            JOIN 
-                public.order_details od ON o.id = od.order_id
-            LEFT JOIN 
-                public.products p ON od.product_code = p.product_code
-            WHERE 
-                o.user_id = $1
-            GROUP BY 
-                o.id
-            ORDER BY 
-                o.order_date DESC;
-        `;
-
-        const result = await db.query(query, [userId]);
-
-        res.status(200).json(result.rows);
-
-    } catch (err) {
-        console.error('Error fetching order history:', err.stack);
-        res.status(500).json({ error: 'Gagal mengambil riwayat pesanan.' });
     }
 });
 
